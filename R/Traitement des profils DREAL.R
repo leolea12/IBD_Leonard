@@ -302,7 +302,7 @@ Global_map <- map_base %>% addCircles(data = Tab_carto %>% select(-plot_percent,
   hideGroup(group = Tab_carto$code_taxon) 
 
 
-# NDMS --------------------------------------------------------------------
+# Data preparation for multivariate analyses ----------------------
 
 `%notin%` <- Negate(`%in%`)
 Communes = c("Mana", "Roura", "Regina", "Maripasoula", "Papaichton", "Kourou",
@@ -325,12 +325,8 @@ Flore2 <- Flore %>%
               mutate(lon = 4.00, lat = 47.6)) %>% 
   filter(Commune %notin% Communes[-11]) %>% drop_na()
 
-# Pour réaliser des analyses mutivariees on a deja besoin de standardise
-# les abondances, à savoir qu'elles ne sont pas totues faites sur le meme 
-# nombre d'indivividus, donc on va diviser chaque RESULTAT par le Tot_indiv de 
-# la station a la date x. Cela nous permettra d'obtenir des abondance relative 
-# et non pas absolues
 
+# On recupere uniquement les stations qui presentent les nouveaux taxons 
 tab <- Flore2 %>% select(CODE_STATION, DATE, code_taxon, RESULTAT) %>% 
   group_by(CODE_STATION, DATE) %>% 
   mutate(Presence = if_else(code_taxon %in% unique(New_taxons %>% pull(abre)) == TRUE, 1, 0)) %>% 
@@ -341,16 +337,6 @@ tab <- Flore2 %>% select(CODE_STATION, DATE, code_taxon, RESULTAT) %>%
   mutate(RESULTAT = sum(RESULTAT)) %>% distinct() %>% 
   pivot_wider(names_from = code_taxon, values_from = RESULTAT) %>% 
   replace(is.na(.), 0) %>% column_to_rownames(., var = "CODE_STATION")
-
-# # Methode NMDS (non dimensional scaling) 
-# example_NMDS=metaMDS(tab_stand, # Our community-by-species matrix
-#                      k=2, trymax = 100, distance = "bray") # The number of reduced dimensions
-# 
-# example_NMDS
-# plot(example_NMDS)
-# orditorp(example_NMDS,display="species",col="red",air=0.01)
-# orditorp(example_NMDS,display="sites",cex=1.25,air=0.01)
-
 
 # AFC ---------------------------------------------------------------------
 
@@ -394,7 +380,7 @@ fviz_ca_col(AFC, col.col = "cos2",
 
 fviz_cos2(AFC, choice = "col", axes = 1:2)# Sous forme histogramme
 
-# Obtenir un graph des importance de chaque taxon sur 1 dimension
+# Obtenir un graph des importances de chaque taxon sur 1 dimension
 
 corrplot(get_ca_col(AFC)$cos2, is.corr=FALSE)
 
