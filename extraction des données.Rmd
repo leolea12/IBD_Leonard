@@ -1,0 +1,332 @@
+---
+title: "Extraction/Fusion des données diatomiques des bases NAIADE et PANDORE"
+author: "Léonard Heinry"
+date: "16/08/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Packages loading 
+
+
+```{r message = FALSE, warning = FALSE}
+library(knitr)
+require(tidyverse)
+require(InraeThemes)
+require(readxl)
+require(fuzzyjoin)
+library(readr)
+library(leaflet)
+library(sf)
+require(tictoc)
+library(lubridate)
+library(purrr)
+library(data.table)
+library(progress)
+library(rlist)
+library(openxlsx)
+library(purrr)
+library(cooccur)
+library(magrittr)
+library(RODBC)
+library(RMySQL)
+library(RPostgreSQL)
+```
+
+## Diatoms data 
+
+The first step of this work consist in getting all diatoms sampling that have 
+been made since 2007. To do so, we will extract data from NAIADES and PANDORE
+databases.
+
+
+### NAIADES data 
+
+```{r message = FALSE, warning = FALSE}
+Diatom <- as.tibble(fread("data/Donnes_biologiques/Naiades_Export_France_Entiere_HB_2022/fauneflore.csv")) %>% # Data loading
+
+  # We rename columns in order to standardize datasets 
+  select("CODE_STATION" = CdStationMesureEauxSurface,
+         "CODE_OPERATION" = RefOperationPrelBio,
+         "Nom_groupe_taxo" = LbSupport,
+         "DATE" = DateDebutOperationPrelBio,
+         "SANDRE" = CdAppelTaxon,
+         "Nom_latin_taxon" = NomLatinAppelTaxon,
+         "RESULTAT" = RsTaxRep,
+         "Code_groupe_taxo" = CdSupport) %>%
+
+  filter(Code_groupe_taxo == 10) %>% # we only keep Diatom data 
+  arrange(DATE,
+          CODE_STATION, CODE_OPERATION,
+          Nom_latin_taxon, RESULTAT); kable(head(Diatom))
+```
+
+PANDORE data are a little more difficult to get as they are stored on a web data
+base that require SQL langage. In order to perform SQL programmation in R, we 
+need to create an online gateway.
+
+### Pandore data
+
+```{r message = FALSE, warning = FALSE}
+
+# Creation of a weblink to extract SQL data from R
+channel=odbcConnect("pandore")
+
+# Date format modification
+Diatom2 <- Diatom %>% mutate(DATE = as.Date(DATE)) %>% select(-Code_groupe_taxo, -Nom_latin_taxon, -Nom_groupe_taxo) %>% 
+  
+# Extraction of PANDORE dataset and joining NAIADES dataset
+bind_rows(as.tibble(sqlQuery(channel, "SELECT cd_opecont, cd_taxon, cd_OMNIDIA, comptage, cd_site, date_opecont, x, y, commune FROM compil
+         join pandore.site using (cd_site)
+         join pandore.listes_diatomee using (cd_opecont) WHERE date_opecont BETWEEN '2007-01-01' AND '2021-12-31'") %>% # SQL langage to extract data from Pandore
+           select(CODE_OPERATION = "cd_opecont", CODE_STATION = "cd_site",
+                               DATE = "date_opecont", SANDRE = "cd_taxon", CODE_TAXON = "cd_OMNIDIA", RESULTAT
+                  = "comptage", x, y, commune)) %>% 
+           mutate(CODE_OPERATION = as.character(CODE_OPERATION))) %>% 
+  arrange(DATE) %>%
+  # Equal rows between both dataset are removed as they represent the same sample 
+  distinct(.keep_all = T); kable(head(Diatom2))
+```
+
+Now that the data is attached, we will add a way to identify the taxa in the database 
+using the OMNIDIA code that is unique to each diatom species. 
+These codes have been retrieved upstream in an excel file that we will
+join to the Diatom2 file
+
+### Taxa identification codes
+```{r message = FALSE, warning = FALSE}
+# Codes are coming from different sources to make sure we don't miss one
+code <- bind_rows(as.tibble(read.csv2("data/Code_4L_taxons/Codes 4 lettres taxons.csv", stringsAsFactors = FALSE) %>% 
+                              mutate(SANDRE = as.numeric(SANDRE))) %>% 
+                    select(AFNOR = "cd_apa", "SANDRE"),as.tibble(read.csv2("data/Code_4L_taxons/Base_Omnidia.csv", stringsAsFactors = FALSE) %>% 
+                                                                   select(AFNOR = CODE, "SANDRE") %>% 
+                                                                   filter(SANDRE!=0)  %>% 
+                                                                   mutate(SANDRE = as.numeric(SANDRE))), as.tibble(read.csv2("data/Code_4L_taxons/Complement_code4L.csv", stringsAsFactors = FALSE)) %>% 
+                    select(AFNOR = "TAXON", "SANDRE") %>% 
+                    mutate(SANDRE = as.numeric(SANDRE)) %>% drop_na()) %>% 
+  distinct(SANDRE, .keep_all = T) %>%  
+  bind_rows(data.frame(AFNOR = c("ERMS","FGNO","DIAS","CMFO","LSAP"),
+                       SANDRE = c(4767, 38468, 20336, 45516, 66512))); kable(head(code))
+```
+
+What we need to be careful of is that in new taxonomy presents codes that 
+are no longer the same as before. Depending on the sampling date, we might then 
+have different codes for the same taxon. To avoid that, we will use a 
+transcodification table to update all codes in order to get their latest version.
+
+### Transcodification 
+```{r message = FALSE, warning = FALSE}
+# Joining codes
+Transcoded_Flore <- Diatom2 %>% left_join(code, by = "SANDRE") %>% 
+  mutate(AFNOR = if_else(is.na(AFNOR), CODE_TAXON, AFNOR)) %>% 
+  select(DATE, CODE_STATION, AFNOR, SANDRE, RESULTAT, x, y, commune) %>% 
+  filter(SANDRE != 0) %>% 
+  # Joining updated codes 
+  left_join(as.tibble(read.csv2("data/TableTranscodification.csv", stringsAsFactors = FALSE)) %>% 
+              select(AFNOR = "ABRE", True_name = "CodeValid"), by = "AFNOR") %>%
+  # If the code is the same as the updated then we keep it
+  # if not we change it
+  mutate(AFNOR = if_else(is.na(True_name) == T, AFNOR, True_name)) %>% 
+  select(-True_name) %>% filter(!is.na(AFNOR)) %>% rename(code_taxon = "AFNOR"); kable(head(Transcoded_Flore))
+```
+
+At last, PANDORE data have stations coordinates directly included in samples but
+NAIADES data dont. To standardize the file and make it easier to analyse then 
+we are going to get missing coordinates from a station file we downloaded earlier
+
+### Missing coordinates recovery
+
+```{r message = FALSE, warning = FALSE}
+Diatom3 <- Transcoded_Flore %>% mutate(CODE_STATION = str_remove(CODE_STATION, "^0+")) %>% 
+  left_join(as.tibble(read.csv2("data/Donnes_traitees/Station.csv", stringsAsFactors = FALSE)) %>% 
+              select(CODE_STATION = CdStationMesureEauxSurface, x = CoordXStationMesureEauxSurface, 
+                     y = CoordYStationMesureEauxSurface, Commune = LbCommune) %>% 
+              mutate(x = as.numeric(x), y = as.numeric(y)), by = "CODE_STATION") %>% 
+  mutate(x = if_else(is.na(x.x == T), x.y, x.x),
+         y = if_else(is.na(y.x == T), y.y, y.x),
+         Commune = if_else(is.na(Commune == T), commune, Commune),
+         Commune = if_else(is.na(Commune==T), "Inconnue", Commune)) %>% 
+  # Sample without coordinates are unusable, we remove them (drop_na())
+  select(-x.x, -y.x, -x.y, -y.y, -commune) %>% drop_na(); kable(head(Diatom3))
+```
+
+
+The diatom file is ready, now we need to get corresponding chemical samples. 
+On a diatom station, one sample was made per year whereas one sample per month
+was made for chemical parameters. Thus, for one diatom list of a station at
+a given date, we need to extract madian of chemical parameters of interest 60 
+days before sampling and 15 days after, so that environnemental parameters are 
+relevant of tha conditions the diatoms lived before being sampled.
+
+## Chemical samples 
+
+### PANDORE chemical database
+
+```{r message = FALSE, warning = FALSE}
+# Link creation to use SQL programmation in R
+channel=odbcConnect("pandore")
+```
+
+
+```{r message = FALSE, warning = FALSE}
+# We only extract parameters of interest (1304,1311,1302,1314,1335,1433,1340)
+Chimie_pandore <- as.tibble(sqlQuery(channel, "SELECT cd_opecont, cd_site, date_opecont, cd_obsPhyChi, cd_support, resultat, cd_param, cd_unite, nom_param FROM sandre_parametre
+    join pandore.listes_phychi using(cd_param)
+    join pandore.opecont_phychi using(cd_obsPhyChi)
+    join pandore.compil using(cd_opecont)
+    WHERE cd_param = 1302 OR cd_param = 1304 OR cd_param = 1311 OR 
+                        cd_param = 1314 OR cd_param = 1335 OR cd_param = 1433 OR cd_param = 1340 AND cd_support = 3") %>% 
+                      rename(CODE_STATION = cd_site,
+                             Code_Unite_mesure = cd_unite,
+                             Nom_parametre = nom_param,
+                             Code_parametre = cd_param,
+                             DATE = date_opecont,
+                             Concentration = resultat,
+                             Code_Prelevement = cd_obsPhyChi,
+                             CdSupport = cd_support) %>% 
+                      select(-cd_opecont) %>% 
+                      arrange(DATE) %>% 
+                      subset(CODE_STATION %in% c(unique(Diatom3$CODE_STATION))) %>% 
+                      mutate(Code_Unite_mesure = as.character(Code_Unite_mesure),
+                             Code_Prelevement = as.character(Code_Prelevement)) %>% 
+                      select(CODE_STATION, Code_Prelevement, DATE,       
+                             Code_parametre, Nom_parametre,
+                             Concentration, Code_Unite_mesure))
+
+head(Chimie_pandore)
+```
+
+### NAIADES chemical database
+
+Chemical samples from NAIADES database were dowloaded earlier from there website 
+just as we did for diatom data. NAIADES files are stored on computer as: 
+
+"data/Donnes_chimiques/Naiades_Export_France_Entiere_PC_2022/analyses_2007.csv"
+"data/Donnes_chimiques/Naiades_Export_France_Entiere_PC_2022/analyses_2008.csv"
+etc...
+                                    
+## Diatoms and chemical data fusion                                    
+
+To fuse data, we prepared a function that we can source directly from computer.
+This function allow to match chemical samples 60 days before and 15 days after 
+diatom samples according to station and year.
+
+```{r message = FALSE, warning = FALSE}
+source("R/Fonction_fusion_chimie_biologie.R")
+```
+ 
+In order to avoid binding PANDORE and NAIADES data and binding corresponding
+chemical data to diatom samples for each year, we have decided to build another
+function that directly implement Fonction_fusion_chimie_biologie.R 
+after binding PANDORE and NAIADES chemical data. 
+
+The function will need a date and will extract the required diatom and chemical
+data to apply the fusion function and write an excel file so that we can save 
+the results.
+
+
+```{r message = FALSE, warning = FALSE}
+source("R/Fonction_pick_date.R")
+```
+
+As amount of data is huge, we will not run the function but we will juste show 
+the results 
+
+```{r message = FALSE, warning = FALSE}
+
+# What we are supposed to run
+
+# Tab_2007 = Pick_date(2007)
+# Tab_2008 = Pick_date(2008)
+# Tab_2009 = Pick_date(2009)
+# Tab_2010 = Pick_date(2010)
+# Tab_2011 = Pick_date(2011)
+# Tab_2012 = Pick_date(2012)
+# Tab_2013 = Pick_date(2013)
+# Tab_2014 = Pick_date(2014)
+# Tab_2015 = Pick_date(2015)
+# Tab_2016 = Pick_date(2016)
+# Tab_2017 = Pick_date(2017)
+# Tab_2018 = Pick_date(2018)
+# Tab_2019 = Pick_date(2019)
+# Tab_2020 = Pick_date(2020)
+# Tab_2021 = Pick_date(2021)
+
+# Example of Results 
+
+kable(head(read.xlsx("data/Donnes_traitees/2008_traitee.xlsx") %>% 
+  mutate(DATE = convertToDate(DATE)) %>% select(-Code_Prelevement)))
+
+```
+
+We get one dataset per year that we can use to map repartition of taxa of interest
+However, statistical studies we want to conduct require full dataset. We thus
+need to merge all the years.   
+
+## Data gathering
+
+```{r message = FALSE, warning = FALSE}
+# We load all datasets from 2007 to 2021 in a list
+
+x <- as.tibble(list(file = c("data/Donnes_traitees/2007_traitee.xlsx", "data/Donnes_traitees/2007_traitee.xlsx",
+                             "data/Donnes_traitees/2008_traitee.xlsx", "data/Donnes_traitees/2008_traitee.xlsx",
+                             "data/Donnes_traitees/2009_traitee.xlsx", "data/Donnes_traitees/2009_traitee.xlsx",
+                             "data/Donnes_traitees/2010_traitee.xlsx", "data/Donnes_traitees/2010_traitee.xlsx",
+                             "data/Donnes_traitees/2011_traitee.xlsx", "data/Donnes_traitees/2011_traitee.xlsx",
+                             "data/Donnes_traitees/2012_traitee.xlsx", "data/Donnes_traitees/2012_traitee.xlsx",
+                             "data/Donnes_traitees/2013_traitee.xlsx", "data/Donnes_traitees/2013_traitee.xlsx",
+                             "data/Donnes_traitees/2014_traitee.xlsx", "data/Donnes_traitees/2014_traitee.xlsx",
+                             "data/Donnes_traitees/2015_traitee.xlsx", "data/Donnes_traitees/2015_traitee.xlsx",
+                             "data/Donnes_traitees/2016_traitee.xlsx", "data/Donnes_traitees/2016_traitee.xlsx",
+                             "data/Donnes_traitees/2017_traitee.xlsx", "data/Donnes_traitees/2017_traitee.xlsx",
+                             "data/Donnes_traitees/2018_traitee.xlsx", "data/Donnes_traitees/2018_traitee.xlsx",
+                             "data/Donnes_traitees/2019_traitee.xlsx", "data/Donnes_traitees/2019_traitee.xlsx",
+                             "data/Donnes_traitees/2020_traitee.xlsx", "data/Donnes_traitees/2020_traitee.xlsx",
+                             "data/Donnes_traitees/2021_traitee.xlsx", "data/Donnes_traitees/2021_traitee.xlsx"),
+                    sheet = c("chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore", "chimie", "flore",
+                              "chimie", "flore")))
+
+
+# We read flora and chemical sheets independently
+Files <- map2(x$file, x$sheet, ~ read_xlsx(path = .x, sheet = .y))
+
+# We seperatly store chemical and flora sheets, chemical = odd, flore = even
+chimie_sheet = seq(1,30,2)
+flore_sheet = seq(2,30,2)
+```
+
+
+```{r message = FALSE, warning = FALSE}
+# Merge all chemical sheets together
+Chimie <- bind_rows(Files[chimie_sheet]) %>%
+  select(CODE_STATION,DATE,Code_Prelevement,
+         Code_parametre,Nom_parametre,Code_Unite_mesure,Mediane)
+
+kable(head(Chimie))
+```
+
+
+```{r message = FALSE, warning = FALSE}
+# Merge all flora sheets together
+Flore <- bind_rows(Files[flore_sheet]) %>%
+  select(CODE_STATION, DATE, code_taxon, SANDRE, RESULTAT, Commune, x, y) %>%
+  group_by(CODE_STATION, DATE) %>%
+  mutate(Tot_indiv = sum(RESULTAT), RESULTAT = (RESULTAT*1000)/Tot_indiv) %>%
+  ungroup() %>% mutate_if(is.numeric, round, 0)
+
+kable(head(Flore))
+```
+
+
+
+
+
