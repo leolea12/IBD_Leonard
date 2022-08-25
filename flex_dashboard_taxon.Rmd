@@ -1,25 +1,26 @@
 ---
 title: "Nouveaux taxons, IBD 2022"
-output:
-  flexdashboard::flex_dashboard:
-    orientation: columns
-    vertical_layout: fill
-    runtime: shiny
-    theme:
-      version: 4
-      bg: "#FFFFFF"
-      fg: "#000605"
-      primary: "#275662"
-      navbar-bg: "#275662"
-      base_font:
-        google: Prompt
-      heading_font:
-        google: Sen
-      code_font:
-        google:
-          # arguments to sass::font_google()
-          family: JetBrains Mono
-          local: false
+output: html_document
+runtime: shiny
+  # flexdashboard::flex_dashboard:
+  #   orientation: columns
+  #   vertical_layout: fill
+  #   runtime: shiny
+  #   theme:
+  #     version: 4
+  #     bg: "#FFFFFF"
+  #     fg: "#000605"
+  #     primary: "#275662"
+  #     navbar-bg: "#275662"
+  #     base_font:
+  #       google: Prompt
+  #     heading_font:
+  #       google: Sen
+  #     code_font:
+  #       google:
+  #         # arguments to sass::font_google()
+  #         family: JetBrains Mono
+  #         local: false
 ---
 
 ```{r setup, echo=FALSE, include=FALSE, message=FALSE}
@@ -34,10 +35,17 @@ library(readxl)
 library(cartography)
 library(oceanis)
 library(lubridate)
+library(DT)
+library(knitr)
+library(rsconnect)
 tmap_mode("view")
 ```
 
 ```{r data, echo=FALSE, message=FALSE, warning = FALSE}
+
+# rsconnect::setAccountInfo(name='idb-2022-repartitiondestaxons-fichierdreal',
+# 			  token='CECD248D428DDDE6C548B001461DB8F4',
+# 			  secret='SECRET')
 
 load("data/Donnees_utilisables/Donnees_completes.RData")
 
@@ -70,7 +78,7 @@ dt_Chronologie <- Flore %>%
   filter(code_taxon %in% unique(New_taxons %>% pull(abre))) %>% 
   as_tibble() %>%
   mutate(annee=lubridate::year(lubridate::ymd(DATE))) %>% 
-  mutate(ab_rel=RESULTAT/Tot_indiv) %>% 
+  mutate(ab_rel=round((RESULTAT/Tot_indiv), 3)) %>% 
   group_by(annee) %>% mutate(ID = cur_group_id()) %>% 
   ungroup() %>% 
   left_join(as.tibble(read.csv2("data/Donnees_utilisables/Table_transcodage.csv", stringsAsFactors = FALSE)) %>%
@@ -82,6 +90,7 @@ dt_Chronologie <- Flore %>%
   mutate(name_valid = if_else(is.na(nom_IBD) == TRUE, name_valid, nom_IBD), 
          annee = as.factor(annee)) %>% 
   select(-nom_IBD)
+
 
 selection_taxon <- dt_Chronologie$code_taxon %>% unique() %>% sort()
 
@@ -99,15 +108,19 @@ pal <- colorNumeric(palette = carto.pal(pal1 = "pastel.pal", 15), domain = uniqu
 # selection_taxon <- c("FGRA","COCO","SNIG")
 ```
 
-## Column {.sidebar data-width="200"}
+ 
+=======================================================================
+
+
+## {.sidebar data-width="120"}
 
 ```{r, echo=FALSE, message=FALSE}
 selectInput("categorical_variable",
-            label = "Choix du taxon :",
+            label = "Choix du code taxon :",
             choices = selection_taxon)
 ```
 
-## Column {data-width="600"}
+## Carte {data-width="800"}
 
 ### Chronologie de la présence du taxon
 
@@ -122,28 +135,32 @@ selectInput("categorical_variable",
 # })
 
 mapFiltered <- reactive({
-  titre <- dt_Chronologie %>% filter(code_taxon %in% input$categorical_variable) %>% pull(name_valid) %>% unique()
+  titre <- dt_Chronologie %>% 
+    filter(code_taxon %in% input$categorical_variable) %>% 
+    mutate(grouped_col = str_c(name_valid, SANDRE, sep = ". SANDRE: ")) %>%
+    pull(grouped_col) %>% unique()
+  
   map <- map_base %>% addCircles(data = dt_Chronologie %>% filter(code_taxon %in% input$categorical_variable) %>% 
                                    mutate(annee = as.character(annee)),
                           group = ~annee,
                           label = ~Commune, color = ~pal(ID),
                           opacity = 1, radius = 1) %>% 
     addLayersControl(position = "topleft",
-                   baseGroups = c("Fond clair",
-                                  "Fond noir", 
-                                  "Fond satellite"),
+                   baseGroups = c("Fond satellite",
+                                  "Fond clair",
+                                  "Fond noir"),
                    overlayGroups = dt_Chronologie %>% pull(annee),
-                   options = layersControlOptions(collapsed = TRUE)) %>% 
+                   options = layersControlOptions(collapsed = FALSE)) %>% 
     add_titre(titre = as.character(titre)) %>% 
     hideGroup(group = dt_Chronologie$annee)
 })
-
 renderLeaflet({
   mapFiltered()
 })
+
 ```
 
-## Column {data-width="400"}
+## Informations sur le taxon {data-width="450"}
 
 ### Part Moyenne représentée par le taxon dans les stations où il est vu
 
@@ -182,3 +199,20 @@ plot2 <- renderPlot(
 )
 plot2
 ```
+
+Données
+=======================================================================
+
+```{r, echo = FALSE, message = FALSE}
+renderDT({datatable(dt_Chronologie %>% 
+                      filter(code_taxon %in% input$categorical_variable) %>% 
+                      select("ANNEE" = annee, CODE = code_taxon, NOM = name_valid, STATION = CODE_STATION, COMMUNE = Commune, ABONDANCE = RESULTAT, ABONDANCE_RELATIVE = ab_rel, TOTAL = Tot_indiv), 
+                    extensions = 'Buttons', 
+                    options = list(dom = 'Bfrtip',
+                                   buttons = c('copy','excel','pdf')
+                                   )
+                    )
+  })
+```
+
+
