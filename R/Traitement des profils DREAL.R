@@ -409,15 +409,13 @@ plot(Test_coocur)# Regarder les coocurrences positive pour affilier un profil
 # existant ou pas au taxons qui le nécessite
 
 
+library(rsconnect)
 
+rsconnect::setAccountInfo(name='idb-2022-repartitiondestaxons-fichierdreal',
+                          token='CECD248D428DDDE6C548B001461DB8F4',
+                          secret='EAnARZAVLdtAYuPqGLQSL2mpVdiCgOeePV2vvLno')
 
-
-
-
-
-
-
-
+rsconnect::deployApp('Shiny_app')
 
 
 

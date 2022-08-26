@@ -61,7 +61,8 @@ f_fusion <- function(data_chimie, data_biologie){
       filter(Dist_time == "ok") %>% 
       unnest() %>% 
       group_by(Code_parametre) %>% 
-      mutate(Mediane = median(Concentration, na.rm = TRUE)) %>% 
+      mutate(Mediane = median(Concentration, na.rm = TRUE),
+             nb_prel = length(Concentration)) %>% 
       distinct(Code_parametre, .keep_all = T) %>% 
       select(-DATE, -Concentration, -Dist_time, -Nom_unite_mesure) %>%
       ungroup() %>% 
