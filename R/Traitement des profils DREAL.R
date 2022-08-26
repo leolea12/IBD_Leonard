@@ -415,8 +415,19 @@ rsconnect::setAccountInfo(name='idb-2022-repartitiondestaxons-fichierdreal',
                           token='CECD248D428DDDE6C548B001461DB8F4',
                           secret='EAnARZAVLdtAYuPqGLQSL2mpVdiCgOeePV2vvLno')
 
+<<<<<<< HEAD
 rsconnect::deployApp('Shiny_app')
 
+=======
+rsconnect::deployApp('flex_dashboard_taxon.Rmd')
+
+
+
+runApp()
+
+knitr::knit2html('flex_dashboard_taxon.Rmd')
+rmarkdown::render(input = 'flex_dashboard_taxon.Rmd')
+>>>>>>> 21de95f175155537992915ee2ecdfbf2f2c666c9
 
 
 

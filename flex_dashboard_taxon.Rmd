@@ -1,0 +1,218 @@
+---
+title: "Nouveaux taxons, IBD 2022"
+output: html_document
+runtime: shiny
+  # flexdashboard::flex_dashboard:
+  #   orientation: columns
+  #   vertical_layout: fill
+  #   runtime: shiny
+  #   theme:
+  #     version: 4
+  #     bg: "#FFFFFF"
+  #     fg: "#000605"
+  #     primary: "#275662"
+  #     navbar-bg: "#275662"
+  #     base_font:
+  #       google: Prompt
+  #     heading_font:
+  #       google: Sen
+  #     code_font:
+  #       google:
+  #         # arguments to sass::font_google()
+  #         family: JetBrains Mono
+  #         local: false
+---
+
+```{r setup, echo=FALSE, include=FALSE, message=FALSE}
+library(tmap)
+library(tmaptools)
+library(flexdashboard)
+library(sf)
+library(shiny)
+library(tidyverse)
+library(leaflet)
+library(readxl)
+library(cartography)
+library(oceanis)
+library(lubridate)
+library(DT)
+library(knitr)
+library(rsconnect)
+tmap_mode("view")
+```
+
+```{r data, echo=FALSE, message=FALSE, warning = FALSE}
+
+# rsconnect::setAccountInfo(name='idb-2022-repartitiondestaxons-fichierdreal',
+# 			  token='CECD248D428DDDE6C548B001461DB8F4',
+# 			  secret='SECRET')
+
+load("data/Donnees_utilisables/Donnees_completes.RData")
+
+New_taxons <- as.tibble(read_excel("data/Donnees_utilisables/Fichier_DREAL_1.xlsx", 
+                                   sheet = "Non_contributifs")) %>% 
+  select(abre)
+
+
+
+`%notin%` <- Negate(`%in%`)
+Communes = c("Mana", "Roura", "Regina", "Maripasoula", "Papaichton", "Kourou",
+  "Saint-Laurent-du-Maroni", "Iracoubo", "Montsinery-Tonnegrande", "Apatou",
+  "Massangis")
+
+dt_Chronologie <- Flore %>% 
+  distinct() %>% 
+  filter(Commune != "Massangis") %>% 
+  sf::st_as_sf(coords=c("x","y"),crs=2154) %>%
+  sf::st_transform(crs=4326) %>% 
+  extract(geometry, c('lon', 'lat'), '\\((.*), (.*)\\)', convert = TRUE) %>% 
+  select(-geometry) %>% 
+  bind_rows(Flore %>% distinct() %>% 
+              as_tibble() %>%
+              sf::st_as_sf(coords=c("x","y"),crs=2154) %>%
+              sf::st_transform(crs=4326) %>%
+              extract(geometry, c('lon', 'lat'), '\\((.*), (.*)\\)', convert = TRUE) %>% 
+              select(-geometry) %>% filter(Commune == "Massangis") %>% 
+              mutate(lon = 4.00, lat = 47.6)) %>% 
+  filter(Commune %notin% Communes[-11]) %>% 
+  filter(code_taxon %in% unique(New_taxons %>% pull(abre))) %>% 
+  as_tibble() %>%
+  mutate(annee=lubridate::year(lubridate::ymd(DATE))) %>% 
+  mutate(ab_rel=round((RESULTAT/Tot_indiv), 3)) %>% 
+  group_by(annee) %>% mutate(ID = cur_group_id()) %>% 
+  ungroup() %>% 
+  left_join(as.tibble(read.csv2("data/Donnees_utilisables/Table_transcodage.csv", stringsAsFactors = FALSE)) %>%
+  mutate(name_valid = sub("\\_g.*", "", name_valid),
+         code_taxon = Code_valid) %>% 
+    select(code_taxon, name_valid) %>% distinct(), by = "code_taxon") %>% 
+  left_join(as.tibble(read.csv2("data/Donnees_utilisables/Nouveau_taxons_DREAL.csv", stringsAsFactors = FALSE)) %>%
+              select(code_taxon = abre, nom_IBD)%>% distinct(), by = "code_taxon") %>%
+  mutate(name_valid = if_else(is.na(nom_IBD) == TRUE, name_valid, nom_IBD), 
+         annee = as.factor(annee)) %>% 
+  select(-nom_IBD)
+
+
+selection_taxon <- dt_Chronologie$code_taxon %>% unique() %>% sort()
+
+map_base <- leaflet() %>%
+  setView(lng = 3.4, lat = 47, zoom = 6) %>%
+  addProviderTiles(providers$Esri.WorldGrayCanvas,
+                   group = "Fond clair") %>% 
+  addProviderTiles(providers$CartoDB.DarkMatter,
+                   group = "Fond noir") %>% 
+  addProviderTiles(providers$GeoportailFrance.orthos,
+                   group = "Fond satellite")
+
+pal <- colorNumeric(palette = carto.pal(pal1 = "pastel.pal", 15), domain = unique(dt_Chronologie$ID))
+
+# selection_taxon <- c("FGRA","COCO","SNIG")
+```
+
+ 
+=======================================================================
+
+
+## {.sidebar data-width="120"}
+
+```{r, echo=FALSE, message=FALSE}
+selectInput("categorical_variable",
+            label = "Choix du code taxon :",
+            choices = selection_taxon)
+```
+
+## Carte {data-width="800"}
+
+### Chronologie de la présence du taxon
+
+```{r, echo=FALSE, message=FALSE}
+
+# mapFiltered <- reactive({
+#   dt_map <- dt_Chronologie %>%
+#     filter(code_taxon %in% input$categorical_variable) %>%
+#     tm_shape() +
+#     tmap::tm_dots() +
+#     tmap::tm_facets(by="annee",as.layers = T)
+# })
+
+mapFiltered <- reactive({
+  titre <- dt_Chronologie %>% 
+    filter(code_taxon %in% input$categorical_variable) %>% 
+    mutate(grouped_col = str_c(name_valid, SANDRE, sep = ". SANDRE: ")) %>%
+    pull(grouped_col) %>% unique()
+  
+  map <- map_base %>% addCircles(data = dt_Chronologie %>% filter(code_taxon %in% input$categorical_variable) %>% 
+                                   mutate(annee = as.character(annee)),
+                          group = ~annee,
+                          label = ~Commune, color = ~pal(ID),
+                          opacity = 1, radius = 1) %>% 
+    addLayersControl(position = "topleft",
+                   baseGroups = c("Fond satellite",
+                                  "Fond clair",
+                                  "Fond noir"),
+                   overlayGroups = dt_Chronologie %>% pull(annee),
+                   options = layersControlOptions(collapsed = FALSE)) %>% 
+    add_titre(titre = as.character(titre)) %>% 
+    hideGroup(group = dt_Chronologie$annee)
+})
+renderLeaflet({
+  mapFiltered()
+})
+
+```
+
+## Informations sur le taxon {data-width="450"}
+
+### Part Moyenne représentée par le taxon dans les stations où il est vu
+
+```{r ggplot_1, echo=FALSE, message=FALSE}
+plot1 <- renderPlot(
+  dt_Chronologie %>%
+    filter(code_taxon %in% input$categorical_variable) %>% 
+    group_by(annee) %>% 
+    summarise(Presence_moyenne=mean(ab_rel,na.rm=TRUE)) %>% 
+    ggplot2::ggplot(aes(y=Presence_moyenne,x=annee, group = 1))+
+    geom_line(size = 0.5)+
+    geom_point(size = 0.5)+
+    labs(title = input$categorical_variable,
+         x = "Année", y = "Présence moyenne (%)")+
+    InraeThemes::theme_inrae()
+)
+
+plot1
+```
+
+### Occurence du taxon pour les années ou il est vu
+
+```{r ggplot_2, echo=FALSE, message=FALSE}
+
+plot2 <- renderPlot(
+  dt_Chronologie %>%
+    filter(code_taxon %in% input$categorical_variable) %>% 
+    group_by(annee) %>% 
+    summarise(Occurence=n()) %>% 
+    ggplot2::ggplot(aes(y=Occurence,x=annee, group = 1))+
+    geom_line(size = 0.5)+
+    geom_point(size = 0.5)+
+    labs(title = input$categorical_variable,
+         x = "Année",y = "Occurence")+
+    InraeThemes::theme_inrae()
+)
+plot2
+```
+
+Données
+=======================================================================
+
+```{r, echo = FALSE, message = FALSE}
+renderDT({datatable(dt_Chronologie %>% 
+                      filter(code_taxon %in% input$categorical_variable) %>% 
+                      select("ANNEE" = annee, CODE = code_taxon, NOM = name_valid, STATION = CODE_STATION, COMMUNE = Commune, ABONDANCE = RESULTAT, ABONDANCE_RELATIVE = ab_rel, TOTAL = Tot_indiv), 
+                    extensions = 'Buttons', 
+                    options = list(dom = 'Bfrtip',
+                                   buttons = c('copy','excel','pdf')
+                                   )
+                    )
+  })
+```
+
+
