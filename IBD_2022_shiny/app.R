@@ -70,7 +70,7 @@ plot <- function(data, Date) {
       text = element_text(size = 20),
       legend.position = "none"
     ) +
-    labs(title = paste0("Représentation visuelle de l'importance de chaque taxon pour l'année", ": ", as.character(Date)))
+    labs(title = paste0("Représentation visuelle de l'importance moyenne de chaque taxon dans un échantillon pour l'année", ": ", as.character(Date)))
 }
 
 
