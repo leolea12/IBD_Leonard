@@ -23,8 +23,10 @@ dt_Chronologie <- Flore %>%
   sf::st_transform(crs = 4326) %>%
   tidyr::extract(geometry, c("lon", "lat"), "\\((.*), (.*)\\)", convert = TRUE) %>%
   select(-geometry) %>%
-  mutate(lon = if_else(Commune == "Massangis", 4.00, lon),
-                   lat = if_else(Commune == "Massangis", 47.6, lat)) %>% 
+  mutate(
+    lon = if_else(Commune == "Massangis", 4.00, lon),
+    lat = if_else(Commune == "Massangis", 47.6, lat)
+  ) %>%
   filter(Commune %notin% Communes[-11]) %>%
   as_tibble() %>%
   mutate(annee = lubridate::year(lubridate::ymd(DATE))) %>%
@@ -44,32 +46,26 @@ dt_Chronologie <- Flore %>%
     name_valid = if_else(is.na(nom_IBD) == TRUE, name_valid, nom_IBD),
     annee = as.factor(annee)
   ) %>%
-  filter(code_taxon %in% unique(New_taxons %>% pull(abre))) %>% 
-  select(-nom_IBD) %>% mutate(name_valid = str_replace_all(name_valid,"[^[:alnum:]]", " "),
-                             add_names = case_when(
-                               code_taxon == "CEUO" ~ "Cocconeis euglyptoides",
-                               code_taxon == "COCO" ~ "Cocconeis",
-                               code_taxon == "SEAT" ~ "Sellaphora atomoides",
-                               code_taxon == "SNIG" ~ "Sellaphora nigri"),
-                             name_valid = if_else(is.na(add_names) == T, name_valid, add_names),
-                             full_name = paste0(name_valid," ", "(",code_taxon,")")) %>% 
-  left_join(as.tibble(read.csv2("Data/table_transcodage.csv", stringsAsFactors = FALSE)) %>% 
-              select(abre, name,code_taxon = Code_valid) %>% unique() %>% 
-              group_by(code_taxon) %>% filter(abre %notin% code_taxon) %>% mutate(list = paste0(abre," ", sub("\\_g.*", "", name))) %>% 
-              mutate(taxons_apparies=paste(list, collapse=' / ')) %>% 
-              select(-abre, -name,-list) %>% distinct(), by = "code_taxon") %>% 
+  filter(code_taxon %in% unique(New_taxons %>% pull(abre))) %>%
+  select(-nom_IBD) %>%
+  mutate(
+    name_valid = str_replace_all(name_valid, "[^[:alnum:]]", " "),
+    add_names = case_when(
+      code_taxon == "CEUO" ~ "Cocconeis euglyptoides",
+      code_taxon == "COCO" ~ "Cocconeis",
+      code_taxon == "SEAT" ~ "Sellaphora atomoides",
+      code_taxon == "SNIG" ~ "Sellaphora nigri"
+    ),
+    name_valid = if_else(is.na(add_names) == T, name_valid, add_names),
+    full_name = paste0(name_valid, " ", "(", code_taxon, ")")
+  ) %>%
+  left_join(as.tibble(read.csv2("Data/table_transcodage.csv", stringsAsFactors = FALSE)) %>%
+    select(abre, name, code_taxon = Code_valid) %>% unique() %>%
+    group_by(code_taxon) %>% filter(abre %notin% code_taxon) %>% mutate(list = paste0(abre, " ", sub("\\_g.*", "", name))) %>%
+    mutate(taxons_apparies = paste(list, collapse = " / ")) %>%
+    select(-abre, -name, -list) %>% distinct(), by = "code_taxon") %>%
   select(-add_names)
 
 write.csv2(dt_Chronologie, file = ("Data/Chorologie.csv"))
 
 # ajouer au shiny les taxons appariés
-
-  
-
-
-
-
-
-
-
-
