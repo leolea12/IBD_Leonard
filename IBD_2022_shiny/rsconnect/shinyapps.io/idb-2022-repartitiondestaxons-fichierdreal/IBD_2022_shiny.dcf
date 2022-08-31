@@ -1,0 +1,13 @@
+name: IBD_2022_shiny
+title: IBD_2022_shiny
+username:
+account: idb-2022-repartitiondestaxons-fichierdreal
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 6869305
+bundleId: 6255334
+url: https://idb-2022-repartitiondestaxons-fichierdreal.shinyapps.io/IBD_2022_shiny/
+when: 1661950278.52915
+lastSyncTime: 1661950278.52916
+asMultiple: FALSE
+asStatic: FALSE

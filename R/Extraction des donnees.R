@@ -184,7 +184,7 @@ save(Chimie_pandore, file = "data/Donnees_utilisables/Chimie_pandore.RData")
 save(Diatom3, file = "data/Donnees_utilisables/Diatomees.RData")
 
 write.csv2(Diatom3, file = "data/Donnees_utilisables/Diatomees.csv")
-write.csv2(Diatom3, file = "data/Donnees_utilisables/Chimie_pandore.csv")
+write.csv2(Chimie_pandore, file = "data/Donnees_utilisables/Chimie_pandore.csv")
 
 # # Regroupement de toutes les années et enregistrement des données ---------
 
@@ -200,85 +200,6 @@ source("R/Fonction_pick_date.R")
 load("data/Donnees_utilisables/Diatomees.RData")
 load("data/Donnees_utilisables/Chimie_pandore.RData")
 
-tic()
-Tab_2007 = Pick_date(2007)
-Tab_2008 = Pick_date(2008)
-Tab_2009 = Pick_date(2009)
-Tab_2010 = Pick_date(2010)
-Tab_2011 = Pick_date(2011)
-Tab_2012 = Pick_date(2012)
-Tab_2013 = Pick_date(2013)
-Tab_2014 = Pick_date(2014)
-Tab_2015 = Pick_date(2015)
-Tab_2016 = Pick_date(2016)
-Tab_2017 = Pick_date(2017)
-Tab_2018 = Pick_date(2018)
-Tab_2019 = Pick_date(2019)
-Tab_2020 = Pick_date(2020)
-Tab_2021 = Pick_date(2021)
-toc()
-# Ouverture de la feuille excel de l'année choisie dans les fichiers traités
-
-
-# Convertir sur 1000 les abondances avant de travailler
-# Recuperer le script SEEE 
-# Sortir un fichier qui a le meme tete que le script SEEE
-
-list_of_files <- list.files(path = "./data/Donnees_utilisables",
-                            pattern = "\\.xlsx$",
-                            full.names = TRUE)
-
-# Une fois que les donnees auront ete sauver au format R.data, on pourra les 
-# re-importer directement sans passer par le code, juste avec load(data)
-
-x <- as.tibble(list(file = c("data/Donnees_utilisables/2007_traitee.xlsx", "data/Donnees_utilisables/2007_traitee.xlsx",
-                             "data/Donnees_utilisables/2008_traitee.xlsx", "data/Donnees_utilisables/2008_traitee.xlsx",
-                             "data/Donnees_utilisables/2009_traitee.xlsx", "data/Donnees_utilisables/2009_traitee.xlsx",
-                             "data/Donnees_utilisables/2010_traitee.xlsx", "data/Donnees_utilisables/2010_traitee.xlsx",
-                             "data/Donnees_utilisables/2011_traitee.xlsx", "data/Donnees_utilisables/2011_traitee.xlsx",
-                             "data/Donnees_utilisables/2012_traitee.xlsx", "data/Donnees_utilisables/2012_traitee.xlsx",
-                             "data/Donnees_utilisables/2013_traitee.xlsx", "data/Donnees_utilisables/2013_traitee.xlsx",
-                             "data/Donnees_utilisables/2014_traitee.xlsx", "data/Donnees_utilisables/2014_traitee.xlsx",
-                             "data/Donnees_utilisables/2015_traitee.xlsx", "data/Donnees_utilisables/2015_traitee.xlsx",
-                             "data/Donnees_utilisables/2016_traitee.xlsx", "data/Donnees_utilisables/2016_traitee.xlsx",
-                             "data/Donnees_utilisables/2017_traitee.xlsx", "data/Donnees_utilisables/2017_traitee.xlsx",
-                             "data/Donnees_utilisables/2018_traitee.xlsx", "data/Donnees_utilisables/2018_traitee.xlsx",
-                             "data/Donnees_utilisables/2019_traitee.xlsx", "data/Donnees_utilisables/2019_traitee.xlsx",
-                             "data/Donnees_utilisables/2020_traitee.xlsx", "data/Donnees_utilisables/2020_traitee.xlsx",
-                             "data/Donnees_utilisables/2021_traitee.xlsx", "data/Donnees_utilisables/2021_traitee.xlsx"),
-                    sheet = c("chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore", "chimie", "flore",
-                              "chimie", "flore")))
-
-# Ouverture de toutes les feuilles de tous les fichiers + combinaison de feuilles
-# flore et chimie entre elles
-
-Files <- map2(x$file, x$sheet, ~ read_xlsx(path = .x, sheet = .y))
-
-# Pour recuperer les feuilles, chimie = impair, flore = pair
-chimie_sheet = seq(1,30,2)
-flore_sheet = seq(2,30,2)
-
-Chimie <- bind_rows(Files[chimie_sheet]) %>%
-  select(CODE_STATION,DATE,Code_Prelevement,
-         Code_parametre,Nom_parametre,Code_Unite_mesure,Mediane)
-
-Flore <- bind_rows(Files[flore_sheet]) %>%
-  select(CODE_STATION, DATE, code_taxon, SANDRE, RESULTAT, Commune, x, y) %>%
-  group_by(CODE_STATION, DATE) %>%
-  mutate(Tot_indiv = sum(RESULTAT), RESULTAT = (RESULTAT*1000)/Tot_indiv) %>%
-  ungroup() %>% mutate_if(is.numeric, round, 0)
-
-
-
-# Sauvegarde pour R
-save(Chimie, Flore, file = "./data/Donnees_utilisables/Donnees_completes.RData")
-
 
 # Sauvegarde pour test du script IBD
  write.table(Flore[1:10000,] %>% drop_na(), 
@@ -286,7 +207,8 @@ save(Chimie, Flore, file = "./data/Donnees_utilisables/Donnees_completes.RData")
              sep = "\t",row.names = FALSE)
 
 
+ write.csv2(Flore, file = "data/Donnees_utilisables/Flore.csv")
 
+ library(tidyverse)
 
-
-
+Diatom3 %>%  filter(code_taxon == "ECTO")
