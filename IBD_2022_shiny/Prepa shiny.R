@@ -16,8 +16,7 @@ Communes <- c(
   "Massangis"
 )
 
-
-dt_Chronologie <- Flore %>%
+dt_Chronologie <- Flore %>% filter(RESULTAT != 0) %>% 
   distinct() %>%
   sf::st_as_sf(coords = c("x", "y"), crs = 2154) %>%
   sf::st_transform(crs = 4326) %>%
@@ -30,7 +29,7 @@ dt_Chronologie <- Flore %>%
   filter(Commune %notin% Communes[-11]) %>%
   as_tibble() %>%
   mutate(annee = lubridate::year(lubridate::ymd(DATE))) %>%
-  mutate(ab_rel = round((RESULTAT / Tot_indiv), 3)) %>%
+  mutate(ab_rel = round((RESULTAT * 400 / Tot_indiv)/400, 5)) %>%
   group_by(annee) %>%
   mutate(ID = cur_group_id()) %>%
   ungroup() %>%
@@ -65,6 +64,8 @@ dt_Chronologie <- Flore %>%
     mutate(taxons_apparies = paste(list, collapse = " / ")) %>%
     select(-abre, -name, -list) %>% distinct(), by = "code_taxon") %>%
   select(-add_names)
+
+
 
 write.csv2(dt_Chronologie, file = ("Data/Chorologie.csv"))
 
